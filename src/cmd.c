@@ -2069,6 +2069,60 @@ static void get_session(void)
     EOL();
 }
 
+#if MKR1310 == 1
+// The MKR1310 is using the same wires for SPI and UART
+// To be able to use the embedded SPI Flash, we need to switch UART Off
+// As uart is used for waking the device up when going into sleep mode
+// we will disable the sleep mode too during this period of time
+// Uart will be resumed by setting GPIO B12 to LOW (it has a pull-up on the line)
+static uint8_t __prev_sleep;
+static uint8_t __uart_disable = 0;
+static void disable_uart(atci_param_t *param)
+{
+    if (param != NULL)
+        abort(ERR_PARAM);
+    // simpler to add everything in a single place,
+    // make sure these lines are INPUT to not conflict with external signals from SPI
+    GPIO_InitTypeDef cfg = {
+        .Mode = GPIO_MODE_INPUT,
+        .Pull = GPIO_NOPULL};
+    gpio_init(GPIOB, GPIO_PIN_12, &cfg);
+    gpio_init(GPIOB, GPIO_PIN_13, &cfg);
+    gpio_init(GPIOB, GPIO_PIN_14, &cfg);
+    gpio_init(GPIOB, GPIO_PIN_15, &cfg);
+
+    // No need to deactivate uart if the wakeup signal is true
+    int v = gpio_read(GPIOB, GPIO_PIN_12);
+    if (v == 0)
+        abort(ERR_PARAM);
+    OK_();
+
+    lpuart_disable();
+    __prev_sleep = sysconf.sleep;
+    __uart_disable = 1;
+    sysconf.sleep = 0; // prevent the device to go deep sleep and never waked up due to serial line deactivation
+}
+
+// this is monitoring the PB12 line and restart the UART when to comes low
+void process_uart_wakeup(void)
+{
+    // nothing to do
+    if (__uart_disable == 0)
+        return;
+
+    int v = gpio_read(GPIOB, GPIO_PIN_12);
+    if (v == 0)
+    {
+        // restart is requested
+        lpuart_enable();
+        sysconf.sleep = __prev_sleep;
+        __uart_disable = 0;
+        OK_();
+    }
+}
+
+#endif
+
 
 // Manage data stored in NVM user registers
 //
@@ -2179,6 +2233,9 @@ static const atci_command_t cmds[] = {
     {"$CM",          cm,           NULL,             NULL,             NULL, "Start continuous modulated FSK transmission"},
     {"$NVM",         nvm_userdata, NULL,             NULL,             NULL, "Manage data in NVM user registers"},
     {"$LOCKKEYS",    lock_keys,    NULL,             NULL,             NULL, "Prevent read access to security keys from ATCI"},
+#if MKR1310 == 1
+    {"$DISUART", disable_uart, NULL, NULL, NULL, "Disable UART"},
+#endif    
     ATCI_COMMAND_CLAC,
     ATCI_COMMAND_HELP};
 
