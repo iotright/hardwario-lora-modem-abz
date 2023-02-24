@@ -203,6 +203,10 @@ AS = $(TOOLCHAIN)gcc -x assembler-with-cpp
 OBJCOPY = $(TOOLCHAIN)objcopy
 SIZE = $(TOOLCHAIN)size
 
+# Make the Python interpreter binary configurable from the command line so that
+# it could be pointed to either python or python3.
+PYTHON ?= python
+
 ################################################################################
 # Was verbose build mode requested?                                            #
 ################################################################################
@@ -260,13 +264,13 @@ build_date := $(shell date "+%Y-%b-%d %H:%M:%S %Z")
 # is not part of the version string and thus should not be included in the
 # sources because then AT commands like AT$VER would (incorrectly) return it.
 
-git_describe := git describe --abbrev=8 --always --dirty=' (modified)' 2>/dev/null | \
-	sed -Ee 's/^v(([0-9]+\.){2}[0-9]+)/\1/'
+git_describe := git describe --abbrev=8 --always --dirty=' (modified)' 2>/dev/null
+git_version_sed := sed -Ee 's/^v(([0-9]+\.){2}[0-9]+)/\1/'
 
 tmp := $(shell \
 	mkdir -p $(OBJ_DIR); \
 	f=$(OBJ_DIR)/version; \
-	cur=`$(git_describe)`; \
+	cur=`$(git_describe) | $(git_version_sed)`; \
 	[ -z "$$cur" ] && cur=`cat VERSION 2>/dev/null`; \
 	[ -r $$f ] && prev=`cat $$f`; \
 	[ -n "$$prev" -a "$$prev" = "$$cur" ] && exit 0; \
@@ -280,7 +284,7 @@ endif
 tmp := $(shell \
 	mkdir -p $(OBJ_DIR); \
 	f=$(OBJ_DIR)/lib_version; \
-	cur=`(cd lib/loramac-node; $(git_describe))`; \
+	cur=`(cd lib/loramac-node; $(git_describe) --tags | $(git_version_sed))`; \
 	[ -z "$$cur" ] && cur=`cat LIB_VERSION 2>/dev/null`; \
 	[ -r $$f ] && prev=`cat $$f`; \
 	[ -n "$$prev" -a "$$prev" = "$$cur" ] && exit 0; \
@@ -429,7 +433,7 @@ install: $(BIN) $(HEX) $(MAKEFILE_LIST)
 
 .PHONY: python
 python: $(MAKEFILE_LIST) python/VERSION
-	cd python && python -m build
+	cd python && $(PYTHON) -m build
 
 .PHONY: python/VERSION
 python/VERSION: $(MAKEFILE_LIST)
